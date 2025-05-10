@@ -193,7 +193,7 @@ def generate_cumulative_cost_plot(lambda_over, lambda_under, theta_queue):
     plt.plot(cumulative_costs)
     plt.title("Cumulative Cost: Optimal Allocator")
     plt.xlabel("Snapshot")
-    plt.ylabel("Total Cost ($)")
+    plt.ylabel("Total Cost")
     plt.tight_layout()
     plt.savefig("results.png")  
     plt.close()
