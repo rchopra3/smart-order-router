@@ -9,10 +9,7 @@ The system aims to minimize total expected execution cost of a 5,000-share buy o
 ## Repository Contents
 
 - `backtest.py` – Complete implementation of the static allocator and backtest loop. Outputs performance JSON and generates `results.png`.
-- `allocator_psuedocode.txt` – Provided logic for the snapshot-based allocator.
 - `l1_day.csv` – Level-1 historical market data (mocked), containing ~60,000 messages from August 1, 2024.
-- `Optimal Order Placement in Limit Order Markets.pdf` – Reference paper by Cont & Kukanov.
-- `Trial Task Description.pdf` – Detailed requirements for the trial task.
 - `results.png` – Cumulative cost plot using best-tuned parameters.
 
 ---
