@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import json
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
 FILE = 'l1_day.csv'
 df = pd.read_csv(FILE, parse_dates=['ts_event'])
@@ -160,45 +161,94 @@ json_output = {
 
 print(json.dumps(json_output, indent=4))
 
-def generate_cumulative_cost_plot(lambda_over, lambda_under, theta_queue):
-    remaining = ORDER_SIZE
-    cumulative_costs = []
-    total_cash = 0
+def plot_all_cumulative_costs(lambda_over, lambda_under, theta_queue):
+    # materialize all snapshots
+    snapshots = [snap for _, snap in grouped][:100]
+    n = len(snapshots)
+    
+    # — Optimal Allocator cumulative cost —
+    rem_opt   = ORDER_SIZE
+    cost_opt  = 0.0
+    opt_curve = []
+    for snap in snapshots:
+        if rem_opt > 0:
+            # build venues
+            venues = [
+                {'ask': r['ask_px_00'], 'ask_size': r['ask_sz_00'],
+                 'fee': 0.003,       'rebate': 0.001}
+                for _, r in snap.iterrows()
+            ]
+            alloc, _ = allocate(rem_opt, venues,
+                                lambda_over, lambda_under, theta_queue)
+            # execute
+            for i, qty in enumerate(alloc):
+                if rem_opt <= 0:
+                    break
+                fill = min(qty, venues[i]['ask_size'])
+                cost_opt  += fill * (venues[i]['ask'] + venues[i]['fee'])
+                rem_opt   -= fill
+        opt_curve.append(cost_opt)
+    
+    # — Best‑Ask cumulative cost (greedy at each snapshot) —
+    rem_bb    = ORDER_SIZE
+    cost_bb   = 0.0
+    bb_curve  = []
+    for snap in snapshots:
+        if rem_bb > 0 and not snap.empty:
+            best = snap.loc[snap['ask_px_00'].idxmin()]
+            fill = min(rem_bb, best['ask_sz_00'])
+            cost_bb  += fill * best['ask_px_00']
+            rem_bb   -= fill
+        bb_curve.append(cost_bb)
+    
+    # — TWAP cumulative cost (equal slices each snapshot) —
+    slice_sz = ORDER_SIZE / n
+    cost_tw   = 0.0
+    tw_curve  = []
+    for snap in snapshots:
+        avg_px   = snap['ask_px_00'].mean()
+        cost_tw += avg_px * slice_sz
+        tw_curve.append(cost_tw)
+    
+    # — VWAP cumulative cost (volume‐weighted slices) —
+    vols      = [snap['ask_sz_00'].sum() for snap in snapshots]
+    total_vol = sum(vols)
+    cost_vw   = 0.0
+    vw_curve  = []
+    for snap, vol in zip(snapshots, vols):
+        if total_vol > 0 and vol > 0:
+            fill = ORDER_SIZE * (vol / total_vol)
+            # use snapshot’s VWAP price
+            avg_px = (snap['ask_px_00'] * snap['ask_sz_00']).sum() / vol
+            cost_vw += fill * avg_px
+        vw_curve.append(cost_vw)
+    
+    # now plot
+    x = list(range(n))
+    plt.figure(figsize=(12,6))
+    plt.plot(x, opt_curve, label='Optimal Allocator', linewidth=2)
+    plt.plot(x, bb_curve, label='Best Ask', linestyle='--')
+    plt.plot(x, tw_curve, label='TWAP', linestyle=':')
+    plt.plot(x, vw_curve, label='VWAP', linestyle='-.')
 
-    for _, snapshot in grouped:
-        if remaining <= 0:
-            break
+    plt.title("Cumulative Total Cost by Snapshot")
+    plt.xlabel("Snapshot #")
+    plt.ylabel("Cumulative Cost")
 
-        venues = []
-        for _, row in snapshot.iterrows():
-            venues.append({
-                'ask': row['ask_px_00'],
-                'ask_size': row['ask_sz_00'],
-                'fee': 0.003,
-                'rebate': 0.001
-            })
+    # format y-axis in millions
+  
+    ax = plt.gca()
+    ax.yaxis.set_major_formatter(
+        ticker.FuncFormatter(lambda x, pos: f'${x*1e-6:.2f}M')
+    )
 
-        alloc, _ = allocate(min(remaining, ORDER_SIZE), venues,
-                            lambda_over, lambda_under, theta_queue)
-
-        for i, shares in enumerate(alloc):
-            fill = min(shares, venues[i]['ask_size'])
-            total_cash += fill * (venues[i]['ask'] + venues[i]['fee'])
-            remaining -= fill
-            cumulative_costs.append(total_cash)
-            if remaining <= 0:
-                break
-
-    plt.figure(figsize=(7, 5))
-    plt.plot(cumulative_costs)
-    plt.title("Cumulative Cost: Optimal Allocator")
-    plt.xlabel("Snapshot")
-    plt.ylabel("Total Cost")
+    plt.legend(loc='best')
+    plt.grid(True, linestyle=':', alpha=0.6)
     plt.tight_layout()
-    plt.savefig("results.png")  
-    plt.close()
+    plt.savefig('results.png')
 
-generate_cumulative_cost_plot(
+
+plot_all_cumulative_costs(
     best_result['lambda_over'],
     best_result['lambda_under'],
     best_result['theta_queue']
